@@ -1,0 +1,7 @@
+download: https://ultralytics.com/assets/coco8.zip
+names:
+- person
+nc: 1
+path: E:\crowd_counting_project\crowd_counting
+train: images/train
+val: images/val

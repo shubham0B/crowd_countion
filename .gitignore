@@ -1,0 +1,64 @@
+# ============================================================
+#  Vision AI — Crowd Detection :: .gitignore
+# ============================================================
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Python bytecode / caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Local data folder (datasets, large source media, internal docs) ---
+data/
+
+# --- Generated outputs (processed videos, intermediate artifacts) ---
+crowd_counting/outputs/
+outputs/
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# --- Heavy model weights (auto-downloaded by Ultralytics on first run) ---
+# GitHub hard limits files at 100 MB. We commit only the lightweight
+# weights; the heavier YOLOv8 variants fetch themselves on demand.
+crowd_counting/models/yolov8m.pt
+crowd_counting/models/yolov8l.pt
+crowd_counting/models/yolov8x.pt
+crowd_counting/models/yolov8l-face.pt
+
+# --- Duplicate weights left at project root (canonical copies live in models/) ---
+crowd_counting/yolov8n.pt
+crowd_counting/yolov8s.pt
+crowd_counting/yolov8m.pt
+crowd_counting/yolov8l.pt
+crowd_counting/yolov8x.pt
+
+# --- IDE / editor metadata ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Streamlit local config / cache ---
+.streamlit/secrets.toml
+
+# --- Jupyter / Colab leftovers ---
+.ipynb_checkpoints/
+
+# --- Logs ---
+*.log
+logs/

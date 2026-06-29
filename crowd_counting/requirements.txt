@@ -1,0 +1,62 @@
+# ============================================================
+# CROWD COUNTING SYSTEM - requirements.txt
+# GPU-enabled (NVIDIA CUDA) production build
+# Install order matters. Follow the README install steps.
+# ============================================================
+
+# --- CORE WEB FRAMEWORK ---
+# Streamlit powers the entire browser-based UI.
+# It creates buttons, sliders, file uploaders, and image displays.
+# Without this, there is no web interface at all.
+streamlit==1.32.2
+
+# --- COMPUTER VISION ENGINE ---
+# OpenCV handles: image reading, color conversion, drawing boxes,
+# CLAHE contrast enhancement, and the ResNet face detector (cv2.dnn).
+# headless version = no GUI window popups (required on servers).
+opencv-python-headless==4.9.0.80
+
+# --- DEEP LEARNING FRAMEWORK ---
+# PyTorch is the engine that runs YOLOv8's neural network.
+# The CUDA version enables GPU acceleration.
+# Install this SEPARATELY with the CUDA command below.
+# torch==2.2.0  <-- DO NOT uncomment. See install instructions.
+
+# --- YOLOV8 OBJECT DETECTION ---
+# Ultralytics is the official YOLOv8 library.
+# It automatically downloads .pt weight files on first run.
+# It wraps PyTorch and provides the YOLO() class.
+ultralytics==8.2.0
+
+# --- MATRIX / ARRAY MATH ---
+# All images in Python are NumPy arrays (height x width x 3 channels).
+# NumPy does all the math: slicing, reshaping, coordinate calculations.
+numpy==1.26.4
+
+# --- IMAGE FORMAT HANDLING ---
+# PIL (Pillow) converts Streamlit's uploaded binary file
+# into a pixel matrix that OpenCV can process.
+# Streamlit returns PIL format; OpenCV needs NumPy/BGR.
+Pillow==10.2.0
+
+# --- SLICING AIDED HYPER INFERENCE ---
+# SAHI solves YOLO's biggest weakness in crowd scenes:
+# YOLO downscales every image to 640x640. A person who is 25px tall
+# in a 4K image becomes ~8px — invisible. SAHI tiles the image
+# into overlapping 640x640 grids and runs YOLO on each tile
+# independently, then merges all detections.
+sahi==0.11.15
+
+# --- VIDEO TRACKING (DeepSORT) ---
+# DeepSORT assigns persistent unique IDs to detected people
+# across video frames so the same person isn't counted twice.
+# Uses Kalman Filter for trajectory prediction.
+deep-sort-realtime==1.3.2
+
+# --- PROGRESS BARS / DISPLAY UTILITIES ---
+# Used internally by Ultralytics and Streamlit for loading bars.
+tqdm==4.66.2
+
+# --- HTTP REQUESTS ---
+# Used to download face model weights from GitHub on first run.
+requests==2.31.0
