@@ -36,7 +36,7 @@ MIN_ASPECT_RATIO    = 0.15
 MAX_ASPECT_RATIO    = 1.60
 LOW_CONF_THRESHOLD  = 0.15
 
-FACE_MODEL_URL  = "https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8l-face.pt"
+FACE_MODEL_URL  = "https://huggingface.co/deepghs/yolo-face/resolve/main/yolov8l-face/model.pt"
 FACE_MODEL_PATH = os.path.join(MODELS_DIR, "yolov8l-face.pt")
 FACE_TILE_SIZE       = 640
 FACE_TILE_SIZE_SMALL = 320

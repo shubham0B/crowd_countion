@@ -1,19 +1,30 @@
+import os, sys, time, io
+# Prevent Streamlit inspection error with torch.classes on Windows
+try:
+    import torch
+    if hasattr(torch, "classes"):
+        torch.classes.__path__ = []
+except Exception:
+    pass
+
 import streamlit as st
 import cv2
 import numpy as np
+import pandas as pd
 from PIL import Image
-import os, sys, io
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from config import (
-    YOLO_MODELS, DEFAULT_MODEL,
+    BASE_DIR, MODELS_DIR, YOLO_MODELS, DEFAULT_MODEL,
     DEFAULT_CONF_THRESHOLD, DEFAULT_IOU_THRESHOLD,
     INFERENCE_RESOLUTIONS, DEFAULT_RESOLUTION, DEVICE
 )
 from src.detector import process_image, _sahi_available, PERSON_CLASS_ID
 from src.face_recovery import load_face_net
 from src.utils import pil_to_bgr, bgr_to_rgb
+from src.reporter import save_report_entry, load_all_reports, generate_html_report
+from src.studio_tab import render_studio_tab
 
 # ─────────────────────────────────────────
 # VERSION-SAFE IMAGE DISPLAY
@@ -124,10 +135,12 @@ with st.sidebar:
 st.title("👥 VisionAI — Crowd Counting System")
 st.markdown("Upload an image to detect and count people using YOLOv8 + Face Recovery.")
 
-tab_main, tab_video, tab_webcam, tab_compare, tab_guide = st.tabs([
-    "📊 Analytics Dashboard",
+tab_main, tab_video, tab_webcam, tab_labeler, tab_reports, tab_compare, tab_guide = st.tabs([
+    "📸 Image Analytics",
     "🎬 Video File",
     "📷 Live Webcam",
+    "🏷️ Live AI Auto-Labeler & Studio",
+    "📑 Crowd Intelligence & Reports Dashboard",
     "⚖️ Model Comparison",
     "📚 System Guide"
 ])
@@ -341,7 +354,12 @@ with tab_video:
                 out_path = out_tmp.name; out_tmp.close()
                 writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'),
                                          fps_in / int(vid_skip), (_w, _h))
+                import pandas as pd
+                frame_history = []
+                counts_list = []
+                timestamps_list = []
                 idx = 0; t0 = _vt.time()
+
                 while True:
                     ret, frame = cap.read()
                     if not ret: break
@@ -350,18 +368,75 @@ with tab_video:
                     out_frame, count = detect_frame(frame, _vm, conf=vid_conf, imgsz=int(vid_imgsz))
                     writer.write(out_frame)
                     elapsed = _vt.time() - t0
-                    fps_out = (idx//int(vid_skip)) / max(elapsed, 0.001)
+                    current_time_sec = idx / fps_in
+                    fps_out = (idx // int(vid_skip)) / max(elapsed, 0.001)
+
+                    # Track analytics
+                    counts_list.append(count)
+                    timestamps_list.append(current_time_sec)
+                    frame_history.append({
+                        "Frame": idx,
+                        "Time (s)": round(current_time_sec, 2),
+                        "People Count": count,
+                        "FPS": round(fps_out, 1)
+                    })
+
+                    # Live metrics
+                    current_avg = sum(counts_list) / len(counts_list)
                     show_image(vid_frame_ph, bgr_to_rgb(out_frame),
-                               caption=f"Frame {idx}/{total} | People: {count}")
-                    vcount_ph.metric("People", count)
-                    vfps_ph.metric("FPS", f"{fps_out:.1f}")
-                    vframe_ph.metric("Frame", f"{idx}/{total}")
-                    progress_bar.progress(min(idx/max(total,1),1.0))
+                               caption=f"Frame {idx}/{total} | People in Frame: {count} | Avg: {current_avg:.1f}")
+                    vcount_ph.metric("👥 People in Frame", count)
+                    vfps_ph.metric("⚡ FPS", f"{fps_out:.1f}")
+                    vframe_ph.metric("🎞️ Frame", f"{idx}/{total}")
+                    progress_bar.progress(min(idx / max(total, 1), 1.0))
+
                 cap.release(); writer.release()
-                vstatus.success(f"✅ Done! {idx} frames processed.")
-                with open(out_path,"rb") as f:
-                    st.download_button("⬇️ Download Annotated Video", data=f.read(),
-                        file_name="counted_video.mp4", mime="video/mp4")
+
+                # ─────────────────────────────────────────
+                # POST-VIDEO ANALYTICS DASHBOARD
+                # ─────────────────────────────────────────
+                if counts_list:
+                    avg_count = sum(counts_list) / len(counts_list)
+                    max_count = max(counts_list)
+                    min_count = min(counts_list)
+                    max_idx = counts_list.index(max_count)
+                    peak_time = timestamps_list[max_idx]
+                    total_time_str = f"{int(total / fps_in // 60):02d}:{int(total / fps_in % 60):02d}"
+                    peak_time_str = f"{int(peak_time // 60):02d}:{int(peak_time % 60):02d}"
+
+                    st.markdown("---")
+                    st.markdown("### 📊 Post-Video Crowd Analytics Summary")
+
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("📈 Average Crowd", f"{avg_count:.1f} people", help="Average number of people per frame throughout the entire video")
+                    m2.metric("🚀 Peak Crowd", f"{max_count} people", f"at {peak_time_str}", help="Maximum crowd density observed in a single frame")
+                    m3.metric("📉 Minimum Crowd", f"{min_count} people", help="Lowest crowd count observed")
+                    m4.metric("⏱️ Total Duration", total_time_str, f"{len(counts_list)} frames")
+
+                    # Time Series Chart
+                    st.markdown("#### 📉 Crowd Fluctuation Over Time")
+                    df_chart = pd.DataFrame({
+                        "Time (seconds)": [round(t, 1) for t in timestamps_list],
+                        "People in Frame": counts_list,
+                        "Video Average": [round(avg_count, 1)] * len(counts_list)
+                    }).set_index("Time (seconds)")
+                    st.line_chart(df_chart, color=["#00ff99", "#ff9900"])
+
+                    # Save to central report system
+                    rep_entry = save_report_entry("Video", getattr(vid_file, "name", "Video"), int(sum(counts_list)), avg_count, max_count, min_count, total / fps_in, frame_history)
+                    st.session_state['latest_report'] = rep_entry
+                    st.session_state['latest_chart_df'] = df_chart
+
+                    # Download Options
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
+                        with open(out_path, "rb") as f:
+                            st.download_button("⬇️ Download Annotated Video", data=f.read(),
+                                file_name="crowd_annotated_video.mp4", mime="video/mp4", use_container_width=True)
+                    with col_dl2:
+                        csv_data = pd.DataFrame(frame_history).to_csv(index=False).encode('utf-8')
+                        st.download_button("📊 Download Analytics CSV Report", data=csv_data,
+                            file_name="crowd_analytics_report.csv", mime="text/csv", use_container_width=True)
             except Exception as e:
                 st.error(f"Video error: {e}")
             finally:
@@ -425,19 +500,89 @@ with tab_webcam:
                                caption=f"People: {count2} | FPS: {fps2:.1f}")
                     cam_count_ph.metric("👥 People", count2)
                     cam_fps_ph.metric("⚡ FPS", f"{fps2:.1f}")
-                    cam_fr_ph.metric("🎞️ Frame", f"{frames}/{N}")
+                    cam_fr_ph.metric("🎞 Frame", f"{frames}/{N}")
                 cap2.release()
-                cam_frame_ph.success(f"✅ Done — {frames} frames. Click Start to continue.")
+                cam_frame_ph.success("✅ Capture finished.")
         except Exception as e:
             st.error(f"Webcam error: {e}")
 
 # ══════════════════════════════════════════
-# TAB 4 — COMPARISON
+# TAB 4 — LIVE AI AUTO-LABELER & STUDIO
+# ══════════════════════════════════════════
+render_studio_tab(tab_labeler, model_label, face_net)
+
+# ══════════════════════════════════════════
+# TAB 5 — CROWD INTELLIGENCE & REPORTS DASHBOARD
+# ══════════════════════════════════════════
+with tab_reports:
+    st.markdown("### 📑 Crowd Intelligence & Project Executive Reports")
+    st.markdown("Automated analytics dashboard summarizing **crowd occupancy, timeline fluctuations, peak congestions, and project reports**.")
+
+    all_reports = load_all_reports()
+    
+    if not all_reports and 'latest_report' not in st.session_state:
+        st.info("💡 No analytics recorded yet. Process an image in **📸 Image Analytics**, a video in **🎬 Video File**, or run **🏷️ Live AI Auto-Labeler** to generate reports.")
+    else:
+        latest = st.session_state.get('latest_report', all_reports[0] if all_reports else {})
+        
+        # 1. Global KPIs
+        total_people_seen = sum(r.get('total_count', 0) for r in all_reports) if all_reports else latest.get('total_count', 0)
+        avg_people_overall = sum(r.get('avg_count', 0) for r in all_reports) / max(len(all_reports), 1) if all_reports else latest.get('avg_count', 0)
+        global_peak = max(r.get('peak_count', 0) for r in all_reports) if all_reports else latest.get('peak_count', 0)
+        total_sessions = len(all_reports)
+
+        rk1, rk2, rk3, rk4 = st.columns(4)
+        rk1.metric("👥 Total People Detected", f"{total_people_seen:,}", help="Total count of people across all analyzed frames")
+        rk2.metric("📈 Average Crowd / Frame", f"{avg_people_overall:.1f} people", help="Average density per frame")
+        rk3.metric("🚀 Max Density Peak", f"{global_peak} people", help="Highest crowd density spike recorded")
+        rk4.metric("📁 Media Sessions", f"{total_sessions} runs", help="Total videos/datasets analyzed")
+
+        st.markdown("---")
+
+        # 2. Executive Report Generation
+        st.markdown("#### 📄 Downloadable Executive Project Report")
+        col_rep1, col_rep2 = st.columns([2, 1])
+        with col_rep1:
+            st.markdown(f"""
+            **Latest Analysis Report:** `{latest.get('filename', 'Session')}`  
+            - **Timestamp:** {latest.get('timestamp', 'N/A')}  
+            - **Average Occupancy:** **{latest.get('avg_count', 0)} people / frame**  
+            - **Peak Congestion:** **{latest.get('peak_count', 0)} people**
+            """)
+        with col_rep2:
+            html_report_code = generate_html_report(latest, all_reports)
+            st.download_button(
+                "⬇️ Download Official Executive Report (HTML/PDF)",
+                data=html_report_code,
+                file_name=f"VisionAI_Crowd_Report_{int(time.time())}.html",
+                mime="text/html",
+                use_container_width=True
+            )
+
+        # 3. Interactive Chart
+        if 'latest_chart_df' in st.session_state:
+            st.markdown("---")
+            st.markdown("#### 📉 Recent Video Crowd Fluctuation Curve")
+            st.line_chart(st.session_state['latest_chart_df'], color=["#00ff99", "#ffaa00"])
+
+        # 4. Historical Logs Data Table
+        st.markdown("---")
+        st.markdown("#### 🕒 Full Detection & Analytics History Table")
+        if all_reports:
+            df_hist = pd.DataFrame(all_reports)
+            st.dataframe(df_hist, use_container_width=True)
+            
+            csv_hist = df_hist.to_csv(index=False).encode('utf-8')
+            st.download_button("📊 Download Complete History (CSV)", data=csv_hist,
+                file_name="crowd_all_sessions_history.csv", mime="text/csv")
+
+# ══════════════════════════════════════════
+# TAB 6 — COMPARISON
 # ══════════════════════════════════════════
 with tab_compare:
     st.markdown("### ⚖️ Compare Two YOLOv8 Models")
     if 'pil_image' not in dir() or uploaded_file is None:
-        st.info("Upload an image in the Analytics Dashboard tab first.")
+        st.info("Upload an image in the Image Analytics tab first.")
     else:
         ca, cb = st.columns(2)
         mk = list(YOLO_MODELS.keys())
@@ -462,7 +607,7 @@ with tab_compare:
                 show_image(st, bgr_to_rgb(rb.annotated_frame))
 
 # ══════════════════════════════════════════
-# TAB 5 — GUIDE
+# TAB 7 — GUIDE
 # ══════════════════════════════════════════
 with tab_guide:
     st.markdown("""
